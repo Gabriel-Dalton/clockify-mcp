@@ -167,14 +167,16 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
     {
       description:
         "Changes an invoice's status — for example to SENT once you have " +
-        "actually emailed it, or PAID when the money lands. This only records " +
-        "the status in Clockify; it does not send anything to the client.",
+        "actually emailed it, or VOID to write it off. This only records the " +
+        "status in Clockify; it does not send anything to the client. To mark " +
+        "an invoice paid, use record-clockify-invoice-payment instead: Clockify " +
+        "refuses a direct move to PAID.",
       inputSchema: {
         workspaceId,
         invoiceId: z.string().describe("The invoice to update."),
         status: z
-          .enum(["UNSENT", "SENT", "PAID", "VOID", "PARTIALLY_PAID"])
-          .describe("The new status."),
+          .enum(["UNSENT", "SENT", "VOID"])
+          .describe("The new status. PAID is set by recording a payment."),
       },
     },
     (input) =>
@@ -190,6 +192,54 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
           status: input.status,
           delivered: false,
           note: "Status recorded in Clockify. Nothing was emailed to the client.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "record-clockify-invoice-payment",
+    {
+      description:
+        "Records a payment against an invoice. This is how an invoice becomes " +
+        "PAID — setting the status directly is refused. A payment for the full " +
+        "balance marks it PAID; a smaller one marks it PARTIALLY_PAID.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice that was paid."),
+        amount: z
+          .number()
+          .positive()
+          .describe(
+            "Amount in the invoice's currency, in major units — 1200 means " +
+              "1,200.00, not twelve dollars.",
+          ),
+        paymentDate: z
+          .string()
+          .describe("When it was paid, e.g. 2026-08-13."),
+        note: z.string().optional().describe("Optional note on the payment."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const invoice = await client.request<any>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/payments`,
+          {
+            method: "POST",
+            body: {
+              // Clockify holds money in minor units.
+              amount: Math.round(input.amount * 100),
+              // The field is `paymentDate` on the way in and `date` on the way
+              // out; sending `date` is rejected as a missing paymentDate.
+              paymentDate: toClockifyDate("paymentDate", input.paymentDate),
+              note: input.note ?? "",
+            },
+          },
+        );
+        return ok({
+          recorded: formatMoney(Math.round(input.amount * 100), invoice.currency),
+          ...summariseInvoice(invoice),
+          paid: formatMoney(invoice.paid, invoice.currency),
+          balance: formatMoney(invoice.balance, invoice.currency),
         });
       }),
   );

@@ -75,6 +75,7 @@ test("every tool is registered and uniquely named", async () => {
     "get-clockify-invoice",
     "create-clockify-invoice",
     "set-clockify-invoice-status",
+    "record-clockify-invoice-payment",
     "delete-clockify-invoice",
   ]) {
     assert.ok(names.includes(expected), `missing tool: ${expected}`);
@@ -241,6 +242,33 @@ test("invoice status changes state plainly that nothing was emailed", async () =
   assert.match(calls[0].url, /\/invoices\/i1\/status$/);
   assert.match(result.content[0].text, /"delivered": false/);
   assert.match(result.content[0].text, /Nothing was emailed/);
+});
+
+test("a payment converts to minor units and uses the paymentDate field", async () => {
+  const { client, calls } = await harness(() => ({
+    id: "i1",
+    currency: "CAD",
+    status: "PAID",
+    paid: 120000,
+    balance: 0,
+  }));
+
+  const result: any = await client.callTool({
+    name: "record-clockify-invoice-payment",
+    arguments: {
+      workspaceId: "w1",
+      invoiceId: "i1",
+      amount: 1200,
+      paymentDate: "2026-08-13",
+    },
+  });
+
+  const post = calls.find((c) => c.method === "POST")!;
+  assert.match(post.url, /\/invoices\/i1\/payments$/);
+  assert.equal(post.body.amount, 120000, "1200.00 must be sent as 120000");
+  // Sending `date` instead is rejected as a missing paymentDate.
+  assert.equal(post.body.paymentDate, "2026-08-13T12:00:00Z");
+  assert.match(result.content[0].text, /"balance": "CAD 0\.00"/);
 });
 
 test("invoice amounts are reported in major units, not raw cents", async () => {

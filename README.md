@@ -67,7 +67,8 @@ which is where this started and where the tool naming comes from. See
 | `list-clockify-invoices` | Invoices, optionally filtered by status |
 | `get-clockify-invoice` | One invoice with its line items |
 | `create-clockify-invoice` | A draft invoice for a client |
-| `set-clockify-invoice-status` | Record an invoice as sent, paid or void |
+| `set-clockify-invoice-status` | Record an invoice as sent or void |
+| `record-clockify-invoice-payment` | Log a payment, which is what marks it paid |
 | `delete-clockify-invoice` | Remove a draft invoice entirely |
 
 ### What invoicing can and can't do
@@ -89,6 +90,11 @@ created in the UI carry `itemType: ""`, which that same endpoint rejects as
 empty. There is therefore no tool here for adding line items; one would fail
 every time. Duplicating an existing invoice is the working alternative, since a
 duplicate carries its line items across intact.
+
+**PAID is not a status you can set.** Clockify answers *"Add payments to invoice
+to change its status to paid"*. Record a payment instead and the status follows
+on its own — full balance becomes PAID, less becomes PARTIALLY_PAID. Note the
+field asymmetry: a payment is posted as `paymentDate` and read back as `date`.
 
 **Currency and number are both required.** Clockify does not default either.
 If you omit `currency` it is taken from the client; if you omit `number` the
