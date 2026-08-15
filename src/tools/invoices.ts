@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ClockifyClient, buildPath } from "../clockify.js";
 import { guard, ok } from "../response.js";
+import { toClockifyDate } from "../time.js";
 
 const workspaceId = z
   .string()
@@ -73,11 +74,13 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
         return ok({
           ...summariseInvoice(invoice),
           items: (invoice.items ?? []).map((item: any) => ({
-            id: item.id,
+            order: item.order,
             description: item.description,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            amount: item.amount,
+            // Quantity is in hundredths: 100 means one unit.
+            quantity:
+              typeof item.quantity === "number" ? item.quantity / 100 : item.quantity,
+            unitPrice: formatMoney(item.unitPrice, invoice.currency),
+            amount: formatMoney(item.amount, invoice.currency),
           })),
           note: invoice.note,
         });
@@ -100,56 +103,62 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
         currency: z
           .string()
           .optional()
-          .describe("Currency code, e.g. USD. Defaults to the workspace currency."),
+          .describe(
+            "Currency code, e.g. CAD. Clockify requires one; if omitted it is " +
+              "taken from the client's own currency.",
+          ),
         number: z
           .string()
           .optional()
-          .describe("Invoice number. Clockify assigns the next one if omitted."),
+          .describe(
+            "Invoice number. Clockify requires one and does not assign it; if " +
+              "omitted, the next number in the workspace's existing series is used.",
+          ),
         note: z.string().optional().describe("Note shown on the invoice."),
       },
     },
     (input) =>
       guard(async () => {
+        // Clockify rejects the create with "Currency is required" rather than
+        // falling back to the workspace default, so resolve it from the client.
+        let currency = input.currency;
+        if (!currency) {
+          const clientRecord = await client.request<any>(
+            buildPath`/workspaces/${input.workspaceId}/clients/${input.clientId}`,
+          );
+          currency = clientRecord?.currencyCode;
+          if (!currency) {
+            throw new Error(
+              "Clockify requires a currency on an invoice, and this client has " +
+                "none set. Pass `currency` explicitly, e.g. CAD.",
+            );
+          }
+        }
+
+        // Clockify requires a number too, and does not generate one.
+        const number =
+          input.number ??
+          (await nextInvoiceNumber(client, input.workspaceId));
+
         const invoice = await client.request<any>(
           buildPath`/workspaces/${input.workspaceId}/invoices`,
           {
             method: "POST",
             body: {
               clientId: input.clientId,
-              issuedDate: input.issueDate,
-              dueDate: input.dueDate,
-              currency: input.currency,
-              number: input.number,
+              issuedDate: toClockifyDate("issueDate", input.issueDate),
+              dueDate: toClockifyDate("dueDate", input.dueDate),
+              currency,
+              number,
               note: input.note,
             },
           },
         );
-        return ok({ created: true, ...summariseInvoice(invoice) });
-      }),
-  );
-
-  server.registerTool(
-    "add-clockify-invoice-items",
-    {
-      description:
-        "Adds billable time entries to a draft invoice, turning tracked hours " +
-        "into line items.",
-      inputSchema: {
-        workspaceId,
-        invoiceId: z.string().describe("The invoice to add to."),
-        timeEntryIds: z
-          .array(z.string())
-          .min(1)
-          .describe("Time entry IDs, from list-clockify-time-entries."),
-      },
-    },
-    (input) =>
-      guard(async () => {
-        const invoice = await client.request<any>(
-          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/items`,
-          { method: "POST", body: { timeEntryIds: input.timeEntryIds } },
-        );
-        return ok({ added: input.timeEntryIds.length, ...summariseInvoice(invoice) });
+        return ok({
+          ...summariseInvoice(invoice),
+          created: true,
+          currency: invoice.currency ?? currency,
+        });
       }),
   );
 
@@ -170,8 +179,10 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
     },
     (input) =>
       guard(async () => {
+        // The status lives on its own sub-resource; PATCHing the invoice
+        // itself answers 405.
         await client.request(
-          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}`,
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/status`,
           { method: "PATCH", body: { invoiceStatus: input.status } },
         );
         return ok({
@@ -182,9 +193,82 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
         });
       }),
   );
+
+  registerDelete(server, client);
+}
+
+/**
+ * Works out the next number in a workspace's invoice series.
+ *
+ * Numbers are free text in Clockify, so this reads the existing ones, takes
+ * the highest trailing integer, and reuses that entry's prefix — turning
+ * INV11 into INV12 rather than starting a second series alongside it.
+ */
+export function nextNumberFrom(numbers: string[]): string {
+  let best: { prefix: string; value: number } | null = null;
+
+  for (const raw of numbers) {
+    const match = /^(.*?)(\d+)$/.exec(String(raw ?? "").trim());
+    if (!match) continue;
+    const value = Number(match[2]);
+    if (!Number.isFinite(value)) continue;
+    if (!best || value > best.value) best = { prefix: match[1], value };
+  }
+
+  if (!best) return "INV1";
+  return `${best.prefix}${best.value + 1}`;
+}
+
+async function nextInvoiceNumber(
+  client: ClockifyClient,
+  workspaceId: string,
+): Promise<string> {
+  const result = await client.request<any>(
+    buildPath`/workspaces/${workspaceId}/invoices`,
+    { query: { page: 1, "page-size": 200 } },
+  );
+  const invoices = Array.isArray(result) ? result : (result?.invoices ?? []);
+  return nextNumberFrom(invoices.map((i: any) => i.number));
+}
+
+/**
+ * Clockify returns money in minor units — a CAD 400.00 invoice comes back as
+ * 40000. Reported raw, a model will tell you an invoice is worth four hundred
+ * thousand dollars, so every amount is paired with a formatted figure.
+ */
+export function formatMoney(minorUnits: unknown, currency?: string): string | null {
+  if (typeof minorUnits !== "number" || !Number.isFinite(minorUnits)) return null;
+  const major = (minorUnits / 100).toFixed(2);
+  return currency ? `${currency} ${major}` : major;
+}
+
+/** Registered last so it reads as the end of the invoice lifecycle. */
+function registerDelete(server: McpServer, client: ClockifyClient) {
+  server.registerTool(
+    "delete-clockify-invoice",
+    {
+      description:
+        "Permanently deletes an invoice. Clockify only allows this while it is " +
+        "still a draft — once sent, void it with set-clockify-invoice-status " +
+        "instead, which keeps the number in the series.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice to delete."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        await client.request(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}`,
+          { method: "DELETE" },
+        );
+        return ok({ deleted: true, invoiceId: input.invoiceId });
+      }),
+  );
 }
 
 function summariseInvoice(invoice: any) {
+  const amount = invoice.amount ?? invoice.total;
   return {
     id: invoice.id,
     number: invoice.number,
@@ -194,6 +278,7 @@ function summariseInvoice(invoice: any) {
     issuedDate: invoice.issuedDate,
     dueDate: invoice.dueDate,
     currency: invoice.currency,
-    amount: invoice.amount ?? invoice.total,
+    amountMinorUnits: amount,
+    amount: formatMoney(amount, invoice.currency),
   };
 }

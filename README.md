@@ -67,19 +67,37 @@ which is where this started and where the tool naming comes from. See
 | `list-clockify-invoices` | Invoices, optionally filtered by status |
 | `get-clockify-invoice` | One invoice with its line items |
 | `create-clockify-invoice` | A draft invoice for a client |
-| `add-clockify-invoice-items` | Turn billable time entries into line items |
 | `set-clockify-invoice-status` | Record an invoice as sent, paid or void |
+| `delete-clockify-invoice` | Remove a draft invoice entirely |
 
-### Two things to know about invoicing
+### What invoicing can and can't do
+
+Everything below was established against the live API, not read off the docs.
 
 **It needs a paid Clockify plan.** Invoicing isn't on the free tier. Without it
-the API answers 403 and these tools will tell you so.
+the API answers 403 and these tools say so.
 
 **Nothing here emails a client.** Clockify's API has no send endpoint. Setting an
-invoice to `SENT` records that it went out; it does not deliver anything. Actual
-delivery is a separate step through whatever you send mail with, which is why
-these tools say `"delivered": false` in their results rather than implying the
-client has it.
+invoice to `SENT` records that it went out; it does not deliver anything, which
+is why these tools return `"delivered": false` rather than implying the client
+has it.
+
+**Line items cannot be created through the public API.** `POST /invoices/{id}/items`
+demands an `itemType` that resolves against a workspace lookup, and every value
+tried comes back `Invoice item type with name … not found` — while line items
+created in the UI carry `itemType: ""`, which that same endpoint rejects as
+empty. There is therefore no tool here for adding line items; one would fail
+every time. Duplicating an existing invoice is the working alternative, since a
+duplicate carries its line items across intact.
+
+**Currency and number are both required.** Clockify does not default either.
+If you omit `currency` it is taken from the client; if you omit `number` the
+next value in the workspace's existing series is worked out and used.
+
+**Amounts are in minor units.** A CAD 400.00 invoice comes back as `40000`, and
+quantities are in hundredths — `100` means one unit. Every amount is returned
+both raw as `amountMinorUnits` and formatted as `amount`, because reported raw
+a model will tell you an invoice is worth four hundred thousand dollars.
 
 ## Setup
 

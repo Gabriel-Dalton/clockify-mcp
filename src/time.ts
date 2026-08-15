@@ -42,6 +42,24 @@ export function toOptionalClockifyInstant(
 }
 
 /**
+ * Converts a calendar date to the full instant Clockify's invoice endpoints
+ * demand — they reject a bare `2026-09-14`.
+ *
+ * Date-only input is anchored at midday UTC rather than midnight. Midnight UTC
+ * renders as the previous day for anyone west of Greenwich, which on a due date
+ * reads as an invoice that was already overdue when it was raised.
+ */
+export function toClockifyDate(field: string, value: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new InvalidDateError(field, value);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T12:00:00Z`;
+  }
+  return toClockifyInstant(field, trimmed);
+}
+
+/**
  * Rejects a backwards range up front. Clockify accepts it and stores an entry
  * with a negative duration, which then reads as a data-entry mystery later.
  */

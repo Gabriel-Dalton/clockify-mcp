@@ -74,8 +74,8 @@ test("every tool is registered and uniquely named", async () => {
     "list-clockify-invoices",
     "get-clockify-invoice",
     "create-clockify-invoice",
-    "add-clockify-invoice-items",
     "set-clockify-invoice-status",
+    "delete-clockify-invoice",
   ]) {
     assert.ok(names.includes(expected), `missing tool: ${expected}`);
   }
@@ -168,14 +168,92 @@ test("a bad date is refused before any request is made", async () => {
   assert.equal(calls.length, 0, "no request should reach Clockify");
 });
 
+test("creating an invoice takes the currency from the client when omitted", async () => {
+  // Clockify answers "Currency is required" rather than defaulting, so the
+  // tool has to resolve one before posting.
+  const { client, calls } = await harness((url) =>
+    url.includes("/clients/") ? { id: "c1", currencyCode: "CAD" } : { id: "i1" },
+  );
+
+  await client.callTool({
+    name: "create-clockify-invoice",
+    arguments: {
+      workspaceId: "w1",
+      clientId: "c1",
+      issueDate: "2026-08-15",
+      dueDate: "2026-09-14",
+    },
+  });
+
+  const post = calls.find((c) => c.method === "POST")!;
+  assert.equal(post.body.currency, "CAD");
+});
+
+test("an explicit currency skips the client lookup", async () => {
+  const { client, calls } = await harness(() => ({ id: "i1" }));
+
+  await client.callTool({
+    name: "create-clockify-invoice",
+    arguments: {
+      workspaceId: "w1",
+      clientId: "c1",
+      issueDate: "2026-08-15",
+      dueDate: "2026-09-14",
+      currency: "USD",
+    },
+  });
+
+  assert.ok(
+    !calls.some((c) => c.url.includes("/clients/")),
+    "should not fetch the client when the currency is given",
+  );
+  assert.equal(calls.find((c) => c.method === "POST")!.body.currency, "USD");
+});
+
+test("a client with no currency asks for one instead of failing at Clockify", async () => {
+  const { client } = await harness((url) =>
+    url.includes("/clients/") ? { id: "c1" } : { id: "i1" },
+  );
+
+  const result: any = await client.callTool({
+    name: "create-clockify-invoice",
+    arguments: {
+      workspaceId: "w1",
+      clientId: "c1",
+      issueDate: "2026-08-15",
+      dueDate: "2026-09-14",
+    },
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Pass `currency` explicitly/);
+});
+
 test("invoice status changes state plainly that nothing was emailed", async () => {
-  const { client } = await harness(() => ({}));
+  const { client, calls } = await harness(() => ({}));
 
   const result: any = await client.callTool({
     name: "set-clockify-invoice-status",
     arguments: { workspaceId: "w1", invoiceId: "i1", status: "SENT" },
   });
 
+  // The status is its own sub-resource; PATCHing the invoice itself is a 405.
+  assert.match(calls[0].url, /\/invoices\/i1\/status$/);
   assert.match(result.content[0].text, /"delivered": false/);
   assert.match(result.content[0].text, /Nothing was emailed/);
+});
+
+test("invoice amounts are reported in major units, not raw cents", async () => {
+  const { client } = await harness(() => [
+    { id: "i1", number: "INV10", currency: "CAD", amount: 40000 },
+  ]);
+
+  const result: any = await client.callTool({
+    name: "list-clockify-invoices",
+    arguments: { workspaceId: "w1" },
+  });
+
+  // 40000 is CAD 400.00. Reported raw, this reads as four hundred thousand.
+  assert.match(result.content[0].text, /"amount": "CAD 400\.00"/);
+  assert.match(result.content[0].text, /"amountMinorUnits": 40000/);
 });
