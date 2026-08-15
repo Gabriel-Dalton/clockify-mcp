@@ -5,31 +5,28 @@ AI assistant read and write your time tracking: log work, start and stop running
 timers, browse projects, clients and tasks, and build invoices out of billable
 hours.
 
-Forked from [aslamanver/mcp_clockify](https://github.com/aslamanver/mcp_clockify),
-which is where this started and where the tool naming comes from. See
+Built on the fork by [aslamanver](https://github.com/aslamanver). See
 [NOTICE](./NOTICE) for attribution and the current licensing position.
 
-## What it does that the original didn't
+## What it does
 
 - **Running timers.** Start a timer and leave it running, stop it, ask what's
-  running now. The original could only log a block of work that had already
-  finished.
-- **Invoicing.** Create a draft invoice for a client, add billable time to it as
-  line items, and track its status.
-- **Clients.** List the clients in a workspace, so invoices have somewhere to go.
-- **Partial updates.** Editing a time entry now changes only the fields you name.
-  Previously every field was mandatory, so a small correction meant restating the
-  whole entry.
-- **Complete lists.** Task and project lists page through to the end and tell you
-  if they hit the cap, rather than silently returning the first page.
+  running now.
+- **Invoicing.** Draft an invoice for a client, put line items or imported time
+  on it, export the PDF, record payments, track status.
+- **Time entries.** Log, edit, duplicate, bulk edit and delete work, with
+  partial updates that change only the fields you name.
+- **The rest of the workspace.** Clients, projects, tasks, tags, expenses,
+  reports, webhooks, custom fields, approvals, time off and scheduling.
+- **Complete lists.** Paged endpoints are walked to the end and say so if they
+  hit the cap, rather than silently returning the first page.
 - **Correct URLs.** Query values are encoded, so a project called `R&D` or a
-  timestamp with a `+02:00` offset no longer quietly returns the wrong data.
+  timestamp with a `+02:00` offset can't quietly return the wrong data.
 - **Errors you can act on.** A 401 says the key is wrong, a 403 says the plan
   doesn't cover it, a 404 says the ID doesn't exist — instead of one opaque
-  string. Failures are flagged as errors to the client rather than returned as
-  ordinary text.
-- **Tests.** 25 of them, running against the built output with a stubbed
-  Clockify, so no API key or network is needed to verify a change.
+  string. Failures are flagged as errors rather than returned as ordinary text.
+- **Tests** against the built output with a stubbed Clockify, so no API key or
+  network is needed to verify a change.
 
 ## Tools
 
@@ -83,13 +80,19 @@ invoice to `SENT` records that it went out; it does not deliver anything, which
 is why these tools return `"delivered": false` rather than implying the client
 has it.
 
-**Line items cannot be created through the public API.** `POST /invoices/{id}/items`
-demands an `itemType` that resolves against a workspace lookup, and every value
-tried comes back `Invoice item type with name … not found` — while line items
-created in the UI carry `itemType: ""`, which that same endpoint rejects as
-empty. There is therefore no tool here for adding line items; one would fail
-every time. Duplicating an existing invoice is the working alternative, since a
-duplicate carries its line items across intact.
+**`itemType` is case-sensitive.** Line items take `Service` or `Product`.
+`SERVICE` comes back as `Invoice item type with name SERVICE not found`, which
+reads like a broken endpoint rather than a capitalisation problem.
+
+**Importing time works by date range, not by entry.** `import-clockify-invoice-time`
+bills a period, filtered by project, the way the UI does — you cannot hand it a
+list of entry IDs. It also only imports time on projects belonging to **that
+invoice's client**. Point it at another client's project and it succeeds while
+importing nothing, which is the most confusing possible outcome.
+
+**Duplicating is how you do recurring invoices.** A duplicate carries its line
+items, note and client across intact. It inherits Clockify's last-used *number*,
+which drifts, so set the number explicitly afterwards.
 
 **PAID is not a status you can set.** Clockify answers *"Add payments to invoice
 to change its status to paid"*. Record a payment instead and the status follows
@@ -104,6 +107,40 @@ next value in the workspace's existing series is worked out and used.
 quantities are in hundredths — `100` means one unit. Every amount is returned
 both raw as `amountMinorUnits` and formatted as `amount`, because reported raw
 a model will tell you an invoice is worth four hundred thousand dollars.
+
+## Coverage
+
+100 tools, covering the Clockify API end to end: time entries and timers,
+invoicing and payments, projects, tasks, clients, tags, expenses, reports,
+webhooks, custom fields, approvals, time off, holidays and scheduling.
+
+Several of those areas are paid features. On a plan without them Clockify
+answers 403 and the tool says so plainly — they are here so the capability
+exists the day a plan changes, rather than being discovered missing at the
+moment it is needed.
+
+Anything not wrapped in a dedicated tool is still reachable:
+`search-clockify-api` searches all 175 published operations by keyword, and
+`call-clockify-api` calls any of them. That includes endpoints added after this
+was written.
+
+### Loading fewer tools
+
+Every tool definition occupies context for a whole conversation. All modules
+load by default; name the ones you want to trim that down:
+
+```json
+"env": {
+  "CLOCKIFY_API_KEY": "your-key-here",
+  "CLOCKIFY_MCP_MODULES": "core,time,invoices"
+}
+```
+
+Modules: `core`, `time`, `invoices`, `projects`, `clients`, `tasks`, `tags`,
+`members`, `expenses`, `reports`, `webhooks`, `customfields`, `approvals`,
+`timeoff`, `scheduling`, `catalog`. `core` always loads, since everything else
+needs the workspace and user IDs it supplies. An unrecognised name fails at
+startup rather than quietly loading nothing.
 
 ## Setup
 
@@ -157,8 +194,7 @@ translation live — new tools should not call `fetch` directly.
 
 ## Contributing
 
-Issues and pull requests welcome. Fixes that also apply to the original are
-worth sending [upstream](https://github.com/aslamanver/mcp_clockify/issues) too.
+Issues and pull requests welcome.
 
 ---
 

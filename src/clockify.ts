@@ -7,12 +7,17 @@
 
 export const CLOCKIFY_API_BASE = "https://api.clockify.me/api/v1";
 
+/** Reports live on their own host, not under the main API base. */
+export const CLOCKIFY_REPORTS_BASE = "https://reports.api.clockify.me/v1";
+
 export type QueryValue = string | number | boolean | undefined | null;
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   query?: Record<string, QueryValue>;
   body?: unknown;
+  /** Send to the reports host instead of the main API. */
+  reports?: boolean;
 }
 
 /**
@@ -77,12 +82,14 @@ export function buildQuery(query: Record<string, QueryValue> = {}): string {
 export interface ClockifyClientOptions {
   apiKey?: string;
   baseUrl?: string;
+  reportsUrl?: string;
   userAgent?: string;
   fetchImpl?: typeof fetch;
 }
 
 export class ClockifyClient {
   private readonly baseUrl: string;
+  private readonly reportsUrl: string;
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;
   private readonly apiKey?: string;
@@ -90,6 +97,7 @@ export class ClockifyClient {
   constructor(options: ClockifyClientOptions = {}) {
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl ?? CLOCKIFY_API_BASE;
+    this.reportsUrl = options.reportsUrl ?? CLOCKIFY_REPORTS_BASE;
     this.userAgent = options.userAgent ?? "clockify-mcp";
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
@@ -102,7 +110,8 @@ export class ClockifyClient {
       );
     }
 
-    const url = this.baseUrl + path + buildQuery(options.query);
+    const base = options.reports ? this.reportsUrl : this.baseUrl;
+    const url = base + path + buildQuery(options.query);
     const method = options.method ?? "GET";
 
     let response: Response;

@@ -247,6 +247,174 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
   );
 
   server.registerTool(
+    "import-clockify-invoice-time",
+    {
+      description:
+        "Bills tracked time onto a draft invoice — the proper way to invoice " +
+        "hours rather than retyping a total. It works by date range and " +
+        "project, not by picking individual entries: it imports the billable " +
+        "time between `from` and `to`, the way the Clockify UI does. Only time " +
+        "on projects belonging to the invoice's own client is imported; a " +
+        "mismatch succeeds but silently brings in nothing.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The draft invoice to import into."),
+        from: z.string().describe("Start of the period to bill, e.g. 2026-08-01."),
+        to: z.string().describe("End of the period to bill, e.g. 2026-08-31."),
+        projectIds: z
+          .array(z.string())
+          .optional()
+          .describe("Restrict to these projects. Omit to include all of them."),
+        groupType: z
+          .enum(["SINGLE_ITEM", "GROUPED", "DETAILED"])
+          .optional()
+          .default("GROUPED")
+          .describe(
+            "SINGLE_ITEM puts the whole period on one line; GROUPED gives a " +
+              "line per grouping; DETAILED lists every entry.",
+          ),
+        groupBy: z
+          .enum(["USER", "PROJECT", "DATE"])
+          .optional()
+          .default("PROJECT")
+          .describe("How to group the lines when groupType is GROUPED."),
+        importExpenses: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Also bring in billable expenses for the period."),
+        roundDurations: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Apply the workspace's rounding rules to the durations."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const invoice = await client.request<any>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/items/import`,
+          {
+            method: "POST",
+            body: {
+              from: toClockifyDate("from", input.from),
+              to: toClockifyDate("to", input.to),
+              // Required by the endpoint even when it selects everything.
+              projectFilter: {
+                contains: "CONTAINS",
+                ids: input.projectIds ?? [],
+                status: "ACTIVE",
+              },
+              timeEntryGroupType: input.groupType,
+              timeEntryPrimaryGroupBy: input.groupBy,
+              importExpenses: input.importExpenses,
+              roundTimeEntryDuration: input.roundDurations,
+            },
+          },
+        );
+        return ok({
+          importedFrom: `${input.from} to ${input.to}`,
+          ...summariseInvoice(invoice),
+          items: (invoice.items ?? []).map((item: any) => ({
+            description: item.description,
+            quantity:
+              typeof item.quantity === "number" ? item.quantity / 100 : item.quantity,
+            amount: formatMoney(item.amount, invoice.currency),
+            importType: item.importType,
+            linkedEntries: (item.timeEntryIds ?? []).length,
+          })),
+        });
+      }),
+  );
+
+  server.registerTool(
+    "delete-clockify-invoice-item",
+    {
+      description:
+        "Removes a line item from a draft invoice, addressed by its order number " +
+        "(the `order` field on the item, not its position in a list).",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice."),
+        order: z.number().describe("The item's order number."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        await client.request(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/items/${String(input.order)}`,
+          { method: "DELETE" },
+        );
+        return ok({ removed: input.order, invoiceId: input.invoiceId });
+      }),
+  );
+
+  server.registerTool(
+    "list-clockify-invoice-payments",
+    {
+      description: "Lists the payments recorded against an invoice.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const payments = await client.request<any[]>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/payments`,
+        );
+        return ok(
+          (payments ?? []).map((p) => ({
+            id: p.id,
+            amountMinorUnits: p.amount,
+            amount: formatMoney(p.amount),
+            date: p.date,
+            note: p.note,
+            author: p.author,
+          })),
+        );
+      }),
+  );
+
+  server.registerTool(
+    "delete-clockify-invoice-payment",
+    {
+      description:
+        "Removes a payment from an invoice, which will move it back out of PAID.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice."),
+        paymentId: z.string().describe("The payment to remove."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        await client.request(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/payments/${input.paymentId}`,
+          { method: "DELETE" },
+        );
+        return ok({ removed: input.paymentId, invoiceId: input.invoiceId });
+      }),
+  );
+
+  server.registerTool(
+    "get-clockify-invoice-settings",
+    {
+      description:
+        "Retrieves the workspace's invoice defaults — labels, tax rates, the " +
+        "next number and the standard note.",
+      inputSchema: { workspaceId },
+    },
+    (input) =>
+      guard(async () => {
+        const settings = await client.request<any>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/settings`,
+        );
+        return ok(settings);
+      }),
+  );
+
+  server.registerTool(
     "duplicate-clockify-invoice",
     {
       description:
