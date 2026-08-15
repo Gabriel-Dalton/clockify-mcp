@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ClockifyClient, buildPath } from "../clockify.js";
 import { guard, ok } from "../response.js";
 import { toClockifyDate } from "../time.js";
+import { writeFile } from "node:fs/promises";
 
 const workspaceId = z
   .string()
@@ -192,6 +193,151 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
           status: input.status,
           delivered: false,
           note: "Status recorded in Clockify. Nothing was emailed to the client.",
+        });
+      }),
+  );
+
+  server.registerTool(
+    "add-clockify-invoice-item",
+    {
+      description:
+        "Adds a line item to a draft invoice. Amounts are in normal units — " +
+        "unitPrice 25 means 25.00.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice to add to."),
+        description: z.string().describe("The line's description."),
+        quantity: z
+          .number()
+          .positive()
+          .default(1)
+          .describe("How many units. 1 for a flat fee, or the number of hours."),
+        unitPrice: z.number().describe("Price per unit, e.g. 25 for 25.00."),
+        itemType: z
+          .enum(["Service", "Product"])
+          .default("Service")
+          .describe(
+            "Clockify's item type. Case-sensitive — 'Service' works, 'SERVICE' " +
+              "is rejected as not found.",
+          ),
+        applyTaxes: z
+          .enum(["TAX1", "TAX2", "TAX1TAX2", "NONE"])
+          .default("NONE")
+          .describe("Which of the invoice's taxes apply to this line."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const invoice = await client.request<any>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/items`,
+          {
+            method: "POST",
+            body: {
+              description: input.description,
+              // Quantity is in hundredths and money in minor units.
+              quantity: Math.round(input.quantity * 100),
+              unitPrice: Math.round(input.unitPrice * 100),
+              itemType: input.itemType,
+              applyTaxes: input.applyTaxes,
+            },
+          },
+        );
+        return ok({ added: input.description, ...summariseInvoice(invoice) });
+      }),
+  );
+
+  server.registerTool(
+    "duplicate-clockify-invoice",
+    {
+      description:
+        "Copies an existing invoice, line items included, as a new draft — the " +
+        "reliable way to raise this month's copy of a recurring invoice. The " +
+        "copy keeps the original's dates, so set them with update-clockify-invoice.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice to copy."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const invoice = await client.request<any>(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/duplicate`,
+          { method: "POST" },
+        );
+        return ok({ duplicatedFrom: input.invoiceId, ...summariseInvoice(invoice) });
+      }),
+  );
+
+  server.registerTool(
+    "update-clockify-invoice",
+    {
+      description:
+        "Changes an invoice's number, dates or client. Only the fields you pass " +
+        "are changed; line items are left alone.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice to change."),
+        number: z.string().optional().describe("New invoice number."),
+        issueDate: z.string().optional().describe("New issue date, e.g. 2026-09-08."),
+        dueDate: z.string().optional().describe("New due date, e.g. 2026-09-18."),
+        clientId: z.string().optional().describe("Move it to another client."),
+        note: z.string().optional().describe("New note on the invoice."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const path = buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}`;
+        const current = await client.request<any>(path);
+
+        const invoice = await client.request<any>(path, {
+          method: "PUT",
+          body: {
+            number: input.number ?? current.number,
+            issuedDate: input.issueDate
+              ? toClockifyDate("issueDate", input.issueDate)
+              : current.issuedDate,
+            dueDate: input.dueDate
+              ? toClockifyDate("dueDate", input.dueDate)
+              : current.dueDate,
+            clientId: input.clientId ?? current.clientId,
+            currency: current.currency,
+            note: input.note ?? current.note,
+          },
+        });
+        return ok(summariseInvoice(invoice));
+      }),
+  );
+
+  server.registerTool(
+    "export-clockify-invoice",
+    {
+      description:
+        "Exports an invoice as a PDF and writes it to a file, so it can be " +
+        "attached to an email. Returns the path and size.",
+      inputSchema: {
+        workspaceId,
+        invoiceId: z.string().describe("The invoice to export."),
+        filePath: z
+          .string()
+          .describe("Where to write the PDF, e.g. C:/invoices/INV23.pdf."),
+        locale: z
+          .string()
+          .optional()
+          .default("en-US")
+          .describe("Locale for formatting. Clockify requires one."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const pdf = await client.requestBinary(
+          buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}/export`,
+          { query: { userLocale: input.locale } },
+        );
+        await writeFile(input.filePath, pdf);
+        return ok({
+          path: input.filePath,
+          bytes: pdf.byteLength,
+          isPdf: pdf.subarray(0, 4).toString("ascii") === "%PDF",
         });
       }),
   );

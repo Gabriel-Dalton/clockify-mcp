@@ -74,6 +74,10 @@ test("every tool is registered and uniquely named", async () => {
     "list-clockify-invoices",
     "get-clockify-invoice",
     "create-clockify-invoice",
+    "add-clockify-invoice-item",
+    "duplicate-clockify-invoice",
+    "update-clockify-invoice",
+    "export-clockify-invoice",
     "set-clockify-invoice-status",
     "record-clockify-invoice-payment",
     "delete-clockify-invoice",
@@ -242,6 +246,27 @@ test("invoice status changes state plainly that nothing was emailed", async () =
   assert.match(calls[0].url, /\/invoices\/i1\/status$/);
   assert.match(result.content[0].text, /"delivered": false/);
   assert.match(result.content[0].text, /Nothing was emailed/);
+});
+
+test("a line item sends capitalised itemType and scaled quantity/price", async () => {
+  const { client, calls } = await harness(() => ({ id: "i1", currency: "CAD" }));
+
+  await client.callTool({
+    name: "add-clockify-invoice-item",
+    arguments: {
+      workspaceId: "w1",
+      invoiceId: "i1",
+      description: "Monthly hosting",
+      quantity: 1,
+      unitPrice: 25,
+    },
+  });
+
+  const post = calls.find((c) => c.method === "POST")!;
+  // 'SERVICE' is rejected by Clockify as not found; the lookup is case-sensitive.
+  assert.equal(post.body.itemType, "Service");
+  assert.equal(post.body.quantity, 100, "1 unit is sent as 100");
+  assert.equal(post.body.unitPrice, 2500, "25.00 is sent as 2500");
 });
 
 test("a payment converts to minor units and uses the paymentDate field", async () => {

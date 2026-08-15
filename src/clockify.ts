@@ -134,6 +134,29 @@ export class ClockifyClient {
     return JSON.parse(text) as T;
   }
 
+  /** Fetches a binary body, such as an invoice PDF export. */
+  async requestBinary(path: string, options: RequestOptions = {}): Promise<Buffer> {
+    if (!this.apiKey) {
+      throw new Error(
+        "Missing Clockify API key. Set CLOCKIFY_API_KEY in your MCP client config.",
+      );
+    }
+
+    const url = this.baseUrl + path + buildQuery(options.query);
+    const response = await this.fetchImpl(url, {
+      method: options.method ?? "GET",
+      headers: {
+        "User-Agent": this.userAgent,
+        "x-api-key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      throw new ClockifyError(response.status, path, await response.text());
+    }
+    return Buffer.from(await response.arrayBuffer());
+  }
+
   /**
    * Walks every page of a paginated collection.
    *
