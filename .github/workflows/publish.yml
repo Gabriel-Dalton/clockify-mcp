@@ -2,25 +2,28 @@ name: Publish to npm
 
 on:
   release:
-    types: [created] 
+    types: [created]
 
 jobs:
   publish-npm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4 
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20' 
-          registry-url: 'https://registry.npmjs.org/' 
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org/'
+          cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Publish to npm
-        run: npm publish
+      - run: npm test
+
+      # Scoped packages default to restricted; without this the publish fails.
+      - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

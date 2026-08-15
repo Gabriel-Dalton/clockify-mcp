@@ -1,0 +1,30 @@
+clockify-mcp
+============
+
+This project is a derivative work. It began as a fork of:
+
+    mcp_clockify — https://github.com/aslamanver/mcp_clockify
+    Copyright (c) Aslam Anver
+
+The original established the tool surface, the naming convention for the
+tools, and the Clockify endpoint mapping this project still follows. The
+Clockify API client, pagination, date handling, timer tools, invoicing tools
+and test suite in this repository were written for this fork, but the shape of
+the thing is his and the credit for it belongs to him.
+
+Licensing status
+----------------
+
+At the time of writing, the upstream repository carries no LICENSE file. Under
+default copyright that means the original is all rights reserved, and this
+fork therefore has no license grant to pass on to you. Redistribution rights
+for this package are unresolved until upstream states a license.
+
+    Upstream tracking issue: https://github.com/aslamanver/mcp_clockify/issues/4
+
+Once upstream declares a license, this file will be replaced with that license
+alongside the original copyright notice, and the `license` field in
+package.json will be set to match.
+
+Until then: this repository is published for review and discussion. Do not
+assume a right to redistribute it.

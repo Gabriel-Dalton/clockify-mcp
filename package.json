@@ -1,41 +1,47 @@
 {
-  "name": "mcp_clockify",
-  "version": "1.0.24",
-  "description": "",
+  "name": "@gabriel-dalton/clockify-mcp",
+  "version": "2.0.0",
+  "description": "A Model Context Protocol server for Clockify: time entries, running timers, projects, clients and invoicing.",
   "main": "build/index.js",
   "type": "module",
   "bin": {
-    "mcp_clockify": "./build/index.js"
+    "clockify-mcp": "./build/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
+    "test": "npm run build && node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
     "inspect": "npx @modelcontextprotocol/inspector node build/index.js"
   },
   "files": [
     "build",
-    "README.md"
+    "README.md",
+    "NOTICE"
   ],
   "keywords": [
     "clockify",
     "mcp",
-    "modelcontextprotocol"
+    "modelcontextprotocol",
+    "time-tracking",
+    "invoicing"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Gabriel Dalton",
+  "license": "SEE LICENSE IN NOTICE",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.2",
-    "moment": "^2.30.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@types/node": "^24.0.3",
     "typescript": "^5.8.3"
   },
-  "homepage": "https://aslamanver.github.io/mcp_clockify/",
+  "engines": {
+    "node": ">=20"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/aslamanver/mcp_clockify.git"
+    "url": "https://github.com/Gabriel-Dalton/clockify-mcp.git"
   }
 }

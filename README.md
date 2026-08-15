@@ -1,303 +1,141 @@
-# Clockify MCP Server
+# Clockify MCP
 
-A Model Context Protocol (MCP) server that provides seamless integration with Clockify time tracking API. This server enables AI assistants to interact with Clockify to manage time entries, projects, tasks, and workspaces.
+A Model Context Protocol server for [Clockify](https://clockify.me). It lets an
+AI assistant read and write your time tracking: log work, start and stop running
+timers, browse projects, clients and tasks, and build invoices out of billable
+hours.
 
-## Features
+Forked from [aslamanver/mcp_clockify](https://github.com/aslamanver/mcp_clockify),
+which is where this started and where the tool naming comes from. See
+[NOTICE](./NOTICE) for attribution and the current licensing position.
 
-- 🕐 **Time Entry Management**: Create, update, delete, and list time entries
-- 📁 **Project Management**: Browse and search projects across workspaces
-- ✅ **Task Management**: Access and manage tasks within projects
-- 👤 **User Profile**: Retrieve user information and workspace details
-- 🏢 **Workspace Management**: List and navigate between workspaces
+## What it does that the original didn't
 
-## Demonstration
+- **Running timers.** Start a timer and leave it running, stop it, ask what's
+  running now. The original could only log a block of work that had already
+  finished.
+- **Invoicing.** Create a draft invoice for a client, add billable time to it as
+  line items, and track its status.
+- **Clients.** List the clients in a workspace, so invoices have somewhere to go.
+- **Partial updates.** Editing a time entry now changes only the fields you name.
+  Previously every field was mandatory, so a small correction meant restating the
+  whole entry.
+- **Complete lists.** Task and project lists page through to the end and tell you
+  if they hit the cap, rather than silently returning the first page.
+- **Correct URLs.** Query values are encoded, so a project called `R&D` or a
+  timestamp with a `+02:00` offset no longer quietly returns the wrong data.
+- **Errors you can act on.** A 401 says the key is wrong, a 403 says the plan
+  doesn't cover it, a 404 says the ID doesn't exist — instead of one opaque
+  string. Failures are flagged as errors to the client rather than returned as
+  ordinary text.
+- **Tests.** 25 of them, running against the built output with a stubbed
+  Clockify, so no API key or network is needed to verify a change.
 
-![](https://i.imgur.com/h0DkSJ7.png)
-![](https://i.imgur.com/KDLnxZk.png)
-![](https://i.imgur.com/KHVmdHr.png)
-![](https://i.imgur.com/AL7aL1N.png)
-![](https://i.imgur.com/4UOx2lY.png)
-![](https://i.imgur.com/21Ko3J2.png)
+## Tools
 
-## Available Tools
+**Getting oriented**
 
-### User Management
+| Tool | What it's for |
+| --- | --- |
+| `get-clockify-user` | Your profile, user ID, active workspace and timezone |
+| `list-clockify-workspaces` | Every workspace the key can see |
+| `list-clockify-projects` | Projects, optionally filtered by name |
+| `list-clockify-tasks` | Every task on a project |
+| `list-clockify-clients` | Clients in a workspace |
 
-- `get-clockify-user` - Retrieve current user profile information
+**Time**
 
-### Workspace Management
+| Tool | What it's for |
+| --- | --- |
+| `list-clockify-time-entries` | Entries in a date range |
+| `create-clockify-time-entry` | Log a block of work that has finished |
+| `update-clockify-time-entry` | Change one field without restating the rest |
+| `delete-clockify-time-entry` | Remove an entry permanently |
 
-- `list-clockify-workspaces` - List all accessible workspaces
+**Timers**
 
-### Project Management
+| Tool | What it's for |
+| --- | --- |
+| `start-clockify-timer` | Start tracking now and leave it running |
+| `stop-clockify-timer` | Stop the timer that's running |
+| `get-clockify-running-timer` | What's running, and for how long |
 
-- `list-clockify-projects` - List projects in a workspace with optional name filtering
+**Invoicing**
 
-### Task Management
+| Tool | What it's for |
+| --- | --- |
+| `list-clockify-invoices` | Invoices, optionally filtered by status |
+| `get-clockify-invoice` | One invoice with its line items |
+| `create-clockify-invoice` | A draft invoice for a client |
+| `add-clockify-invoice-items` | Turn billable time entries into line items |
+| `set-clockify-invoice-status` | Record an invoice as sent, paid or void |
 
-- `list-clockify-tasks` - List tasks within a specific project
+### Two things to know about invoicing
 
-### Time Entry Management
+**It needs a paid Clockify plan.** Invoicing isn't on the free tier. Without it
+the API answers 403 and these tools will tell you so.
 
-- `create-clockify-time-entry` - Create new time entries
-- `update-clockify-time-entry` - Update existing time entries
-- `delete-clockify-time-entry` - Delete time entries
-- `list-clockify-time-entries` - List time entries with date filtering
+**Nothing here emails a client.** Clockify's API has no send endpoint. Setting an
+invoice to `SENT` records that it went out; it does not deliver anything. Actual
+delivery is a separate step through whatever you send mail with, which is why
+these tools say `"delivered": false` in their results rather than implying the
+client has it.
 
-## Prerequisites
+## Setup
 
-1. **Clockify Account**: You need a Clockify account with API access
-2. **API Key**: Generate your Clockify API key from your profile settings
-3. **MCP-Compatible Client**: VS Code with GitHub Copilot, Claude Desktop, or other MCP clients
+You need a Clockify API key: **Profile Settings → API → generate**.
 
-## Installation
-
-### Option 1: Using NPX (Recommended)
-
-Add the following configuration to your MCP client:
-
-```json
-{
-  "servers": {
-    "mcp_clockify": {
-      "command": "npx",
-      "args": ["-y", "mcp_clockify@latest"],
-      "env": {
-        "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
-      }
-    }
-  }
-}
-```
-
-### Option 2: Local Development
-
-1. **Clone the repository**:
-
-   ```bash
-   git clone <repository-url>
-   cd clockify-mcp
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Build the project**:
-
-   ```bash
-   npm run build
-   ```
-
-4. **Configure your MCP client**:
-   ```json
-   {
-     "servers": {
-       "mcp_clockify": {
-         "command": "node",
-         "args": ["/path/to/clockify-mcp/build/index.js"],
-         "env": {
-           "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
-         }
-       }
-     }
-   }
-   ```
-
-## Configuration
-
-### Getting Your Clockify API Key
-
-1. Log in to your Clockify account
-2. Go to **Profile Settings** (click your avatar in the top-right corner)
-3. Navigate to the **API** section
-4. Generate or copy your existing API key
-
-### VS Code Setup
-
-1. Open VS Code
-2. Run the command `MCP: Open User Configuration` (Ctrl/Cmd + Shift + P)
-3. This opens or creates the `mcp.json` file in your user profile
-4. Add the configuration with your API key:
-
-```json
-{
-  "servers": {
-    "mcp_clockify": {
-      "command": "npx",
-      "args": ["-y", "mcp_clockify@latest"],
-      "env": {
-        "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
-      }
-    }
-  }
-}
-```
-
-5. Save the file and restart VS Code
-
-### Antigravity Setup
-
-1. Open Antigravity
-2. Run the command `Antigravity: Manage MCP Servers` (Ctrl/Cmd + Shift + P)
-3. View raw config file
-4. Add the configuration with your API key:
+The key can read and write everything in every workspace it can see, including
+deleting time entries. Treat it like a password.
 
 ```json
 {
   "mcpServers": {
-    ...
-    "mcp_clockify": {
+    "clockify": {
       "command": "npx",
-      "args": ["-y", "mcp_clockify@latest"],
+      "args": ["-y", "@gabriel-dalton/clockify-mcp"],
       "env": {
-        "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
+        "CLOCKIFY_API_KEY": "your-key-here"
       }
     }
   }
 }
 ```
 
-5. Save the file and restart Antigravity
+That block goes in your MCP client's config — `claude_desktop_config.json` for
+Claude Desktop, `.mcp.json` for Claude Code, `mcp.json` for VS Code (which uses
+`"servers"` rather than `"mcpServers"`), `~/.gemini/settings.json` for Gemini CLI.
 
-### Claude Desktop Setup
+### From source
 
-Add to your Claude Desktop configuration file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "mcp_clockify": {
-      "command": "npx",
-      "args": ["-y", "mcp_clockify@latest"],
-      "env": {
-        "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
-      }
-    }
-  }
-}
+```bash
+git clone https://github.com/Gabriel-Dalton/clockify-mcp.git
+cd clockify-mcp
+npm install
+npm run build
 ```
 
-### Gemini CLI Setup
-
-1. Open your Gemini CLI configuration file (e.g., `~/.gemini/settings.json`).
-2. Add the following configuration:
-
-```json
-{
-  "mcpServers": {
-    "mcp_clockify": {
-      "command": "npx",
-      "args": ["-y", "mcp_clockify@latest"],
-      "env": {
-        "CLOCKIFY_API_KEY": "your-clockify-api-key-here"
-      }
-    }
-  }
-}
-```
-
-## Usage Examples
-
-### Creating a Time Entry
-
-```
-I worked on the Research project for Acme Corp workspace from today 9 AM to 5 PM. Please create a time entry for this work session in Clockify.
-```
-
-### Listing Recent Time Entries
-
-```
-Show me my time entries for this week in Clockify.
-```
-
-### Managing Projects
-
-```
-List all projects in my main workspace and help me find the "Website Redesign" project.
-```
-
-### Daily Time Tracking
-
-```
-I need to log 3 hours of work on the Mobile App project from 2 PM to 5 PM today with the description "Bug fixes and testing".
-```
+Then point your client at `node /path/to/clockify-mcp/build/index.js`.
 
 ## Development
 
-### Scripts
-
-- `npm run build` - Build the TypeScript project
-- `npm start` - Start the server
-- `npm run inspect` - Use MCP inspector for debugging
-
-### Project Structure
-
-```
-├── src/
-│   └── index.ts          # Main server implementation
-├── build/
-│   └── index.js          # Compiled JavaScript
-├── package.json          # Project configuration
-├── tsconfig.json         # TypeScript configuration
-└── README.md             # This file
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Invalid API Key Error**
-   - Verify your API key is correct and has proper permissions
-   - Check that the environment variable is properly set
-
-2. **Network Connection Issues**
-   - Ensure you have internet connectivity
-   - Verify Clockify API is accessible from your network
-
-3. **Server Not Starting**
-   - Check that Node.js is installed (version 16 or higher)
-   - Verify all dependencies are installed with `npm install`
-
-### Debug Mode
-
-Use the MCP inspector for debugging:
-
 ```bash
-npm run inspect
+npm run build      # compile to build/
+npm test           # build, then run the suite
+npm run typecheck  # types only, no output
+npm run inspect    # MCP inspector against the built server
 ```
 
-This opens a web interface to test and debug the MCP server.
-
-## API Reference
-
-The server interacts with Clockify API v1. For detailed API documentation, visit [Clockify API Documentation](https://clockify.me/developers-api).
+Tests stub `fetch` and assert on the requests that would have gone to Clockify,
+so they need neither a key nor a network. Anything that talks to Clockify goes
+through `src/clockify.ts`, which is where encoding, pagination and error
+translation live — new tools should not call `fetch` directly.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
-
-This project is licensed under the ISC License.
-
-## Support
-
-For issues and questions:
-
-- Check the [troubleshooting section](#troubleshooting)
-- Review [Clockify API documentation](https://clockify.me/developers-api)
-- Open an issue on the repository
+Issues and pull requests welcome. Fixes that also apply to the original are
+worth sending [upstream](https://github.com/aslamanver/mcp_clockify/issues) too.
 
 ---
 
-**Note**: This is an unofficial integration.
+Unofficial. Not affiliated with Clockify or CAKE.com.
