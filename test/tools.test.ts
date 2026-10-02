@@ -310,3 +310,39 @@ test("invoice amounts are reported in major units, not raw cents", async () => {
   assert.match(result.content[0].text, /"amount": "CAD 400\.00"/);
   assert.match(result.content[0].text, /"amountMinorUnits": 40000/);
 });
+
+test("update-clockify-invoice carries the untouched fields across the PUT", async () => {
+  const CURRENT = {
+    id: "i1",
+    number: "INV41",
+    issuedDate: "2026-08-31T12:00:00Z",
+    dueDate: "2026-09-10T12:00:00Z",
+    clientId: "c1",
+    currency: "CAD",
+    note: "E-transfer: a@example.com",
+    companyId: "co1",
+    billFrom: "Example Sender\n1 Example Street",
+    subject: "Retainer",
+    discount: 0,
+    tax: 5,
+    tax2: 0,
+    taxType: "COMPOUND",
+    visibleZeroFields: ["TAX"],
+  };
+  const { client, calls } = await harness(() => CURRENT);
+
+  await client.callTool({
+    name: "update-clockify-invoice",
+    arguments: { workspaceId: "w1", invoiceId: "i1", number: "INV42" },
+  });
+
+  const put = calls.find((c) => c.method === "PUT")!;
+  assert.equal(put.body.number, "INV42");
+  assert.equal(put.body.companyId, "co1");
+  assert.equal(put.body.billFrom, CURRENT.billFrom);
+  assert.equal(put.body.subject, "Retainer");
+  assert.equal(put.body.taxPercent, 5);
+  assert.equal(put.body.taxType, "COMPOUND");
+  assert.deepEqual(put.body.visibleZeroFields, ["TAX"]);
+  assert.equal(put.body.note, CURRENT.note);
+});

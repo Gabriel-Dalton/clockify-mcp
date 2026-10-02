@@ -457,9 +457,20 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
         const path = buildPath`/workspaces/${input.workspaceId}/invoices/${input.invoiceId}`;
         const current = await client.request<any>(path);
 
+        // PUT replaces the whole invoice: anything left out is blanked. Carry
+        // the rest across, or "Bill from", the subject and the tax settings are
+        // wiped (INV41 and INV42 went out of the API with an empty "Bill from").
         const invoice = await client.request<any>(path, {
           method: "PUT",
           body: {
+            companyId: current.companyId,
+            billFrom: current.billFrom,
+            subject: current.subject,
+            discountPercent: current.discount,
+            taxPercent: current.tax,
+            tax2Percent: current.tax2,
+            taxType: current.taxType,
+            visibleZeroFields: current.visibleZeroFields,
             number: input.number ?? current.number,
             issuedDate: input.issueDate
               ? toClockifyDate("issueDate", input.issueDate)
