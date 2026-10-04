@@ -532,10 +532,14 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
         workspaceId,
         dateRangeStart: z
           .string()
-          .describe("Range start, ISO 8601 UTC, e.g. 2026-09-01T07:00:00.000Z for 1 Sep Pacific."),
+          .describe(
+            "Range start as local wall time in `timeZone`, written with a Z, e.g. " +
+              "2026-09-01T00:00:00.000Z. Clockify applies the time zone itself; " +
+              "passing true UTC shifts the dates printed on the report.",
+          ),
         dateRangeEnd: z
           .string()
-          .describe("Range end, ISO 8601 UTC, e.g. 2026-10-01T06:59:59.999Z."),
+          .describe("Range end, same convention, e.g. 2026-09-30T23:59:59.999Z."),
         projectIds: z
           .array(z.string())
           .optional()
