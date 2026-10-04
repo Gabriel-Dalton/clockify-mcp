@@ -522,6 +522,64 @@ export function registerInvoiceTools(server: McpServer, client: ClockifyClient) 
   );
 
   server.registerTool(
+    "export-clockify-summary-report",
+    {
+      description:
+        "Exports Clockify's own Summary report as a PDF, the timesheet that goes " +
+        "out with an hours invoice. Filter by project to match the invoice. " +
+        "Returns the path and size.",
+      inputSchema: {
+        workspaceId,
+        dateRangeStart: z
+          .string()
+          .describe("Range start, ISO 8601 UTC, e.g. 2026-09-01T07:00:00.000Z for 1 Sep Pacific."),
+        dateRangeEnd: z
+          .string()
+          .describe("Range end, ISO 8601 UTC, e.g. 2026-10-01T06:59:59.999Z."),
+        projectIds: z
+          .array(z.string())
+          .optional()
+          .describe("Only these projects. Omit for every project."),
+        groups: z
+          .array(z.enum(["PROJECT", "CLIENT", "TASK", "USER", "DATE", "TAG", "TIMEENTRY"]))
+          .optional()
+          .default(["PROJECT", "TIMEENTRY"])
+          .describe("Grouping, outermost first. TIMEENTRY groups by description."),
+        timeZone: z
+          .string()
+          .optional()
+          .default("America/Vancouver")
+          .describe("IANA time zone the report's dates are shown in."),
+        filePath: z.string().describe("Where to write the PDF."),
+      },
+    },
+    (input) =>
+      guard(async () => {
+        const body: Record<string, unknown> = {
+          dateRangeStart: input.dateRangeStart,
+          dateRangeEnd: input.dateRangeEnd,
+          timeZone: input.timeZone,
+          exportType: "PDF",
+          amountShown: "EARNED",
+          summaryFilter: { groups: input.groups },
+        };
+        if (input.projectIds?.length) {
+          body.projects = { ids: input.projectIds, contains: "CONTAINS", status: "ALL" };
+        }
+        const pdf = await client.requestBinary(
+          buildPath`/workspaces/${input.workspaceId}/reports/summary`,
+          { method: "POST", reports: true, body },
+        );
+        await writeFile(input.filePath, pdf);
+        return ok({
+          path: input.filePath,
+          bytes: pdf.byteLength,
+          isPdf: pdf.subarray(0, 4).toString("ascii") === "%PDF",
+        });
+      }),
+  );
+
+  server.registerTool(
     "record-clockify-invoice-payment",
     {
       description:

@@ -151,13 +151,17 @@ export class ClockifyClient {
       );
     }
 
-    const url = this.baseUrl + path + buildQuery(options.query);
+    const base = options.reports ? this.reportsUrl : this.baseUrl;
+    const url = base + path + buildQuery(options.query);
+    const headers: Record<string, string> = {
+      "User-Agent": this.userAgent,
+      "x-api-key": this.apiKey,
+    };
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
     const response = await this.fetchImpl(url, {
       method: options.method ?? "GET",
-      headers: {
-        "User-Agent": this.userAgent,
-        "x-api-key": this.apiKey,
-      },
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
 
     if (!response.ok) {
